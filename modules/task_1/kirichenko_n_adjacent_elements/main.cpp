@@ -9,7 +9,7 @@ TEST(Parallel_Operations_MPI, test_SizeVector1) {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     std::vector<int> globalVec;
-    const int SizeVector = 6;
+    const int SizeVector = 100000000;
 
     if (rank == 0) {
         globalVec = getRandomVector(SizeVector);

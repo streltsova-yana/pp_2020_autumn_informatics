@@ -50,16 +50,11 @@ std::vector<int> MergeBatcher(std::vector<int> vec, int n) {
             res.resize(lengthr / 2 + lengthr % 2);
             MPI_Sendrecv(&locvec[locvec.size() / 2 + locvec.size() % 2], lengths, MPI_INT, rank + offset, 0,
                 &res.front(), lengthr / 2 + lengthr % 2, MPI_INT, rank + offset, 0, MPI_COMM_WORLD, &status);
-            even = PMerge(locvec, res, 1);
+            even = EMerge(locvec, res);
             odd.resize(lengthr / 2 + locvec.size() / 2);
             MPI_Recv(&odd.front(), lengthr / 2 + locvec.size() / 2, MPI_INT, rank + offset,
                 0, MPI_COMM_WORLD, &status);
-            locvec.resize(even.size() + odd.size());
-            for (size_t i = 0; i < even.size(); i++)
-                locvec[i] = even[i];
-            for (size_t i = 0; i < odd.size(); i++)
-                locvec[i + even.size()] = odd[i];
-            locvec = Merge(locvec, even.size(), odd.size());
+            locvec = Merge(even, odd, even.size(), odd.size());
             if (i + 1 != nummerge)
                 locvec = Shuffle(locvec);
         }
@@ -70,7 +65,7 @@ std::vector<int> MergeBatcher(std::vector<int> vec, int n) {
             res.resize(lengthr);
             MPI_Sendrecv(locvec.data(), lengths / 2 + lengths % 2, MPI_INT, rank - offset, 0,
                 res.data(), lengthr, MPI_INT, rank - offset, 0, MPI_COMM_WORLD, &status);
-            odd = PMerge(locvec, res, 0);
+            odd = OMerge(locvec, res);
             MPI_Send(odd.data(), odd.size(), MPI_INT, rank - offset, 0, MPI_COMM_WORLD);
         }
         mergecount *= 2;
@@ -84,14 +79,10 @@ std::vector<int> Shuffle(std::vector<int> vec) {
         tmp[i / 2 + (i % 2) * (vec.size() / 2 + vec.size() % 2)] = vec[i];
     return tmp;
 }
-std::vector<int> PMerge(const std::vector<int>& v1, const std::vector<int>& v2, const int flag) {
-    if (v1.empty())
-        return v2;
-    if (v2.empty())
-        return v1;
-    std::vector<int> res(v1.size() / 2 + flag * v1.size() % 2 + v2.size());
-    size_t i = flag == 0 ? v1.size() / 2 + v1.size() % 2 : 0, j = 0, k = 0;
-    size_t l = flag == 0 ? v1.size() : v1.size() / 2 + v1.size() % 2;
+std::vector<int> OMerge(const std::vector<int>& v1, const std::vector<int>& v2) {
+    std::vector<int> res(v1.size() / 2 + v2.size());
+    size_t i = v1.size() / 2 + v1.size() % 2, j = 0, k = 0;
+    size_t l = v1.size();
     while ((i < l) && (j < v2.size())) {
         if (v1[i] < v2[j])
             res[k++] = v1[i++];
@@ -104,23 +95,35 @@ std::vector<int> PMerge(const std::vector<int>& v1, const std::vector<int>& v2, 
         res[k++] = v2[j++];
     return res;
 }
-std::vector<int> Merge(std::vector<int> vec, int evencount, int oddcount) {
-    std::vector<int> res(vec.size());
+std::vector<int> EMerge(const std::vector<int>& v1, const std::vector<int>& v2) {
+    std::vector<int> res(v1.size() / 2 + v1.size() % 2 + v2.size());
+    size_t i = 0, j = 0, k = 0;
+    size_t l = v1.size() / 2 + v1.size() % 2;
+    while ((i < l) && (j < v2.size())) {
+        if (v1[i] < v2[j])
+            res[k++] = v1[i++];
+        else
+            res[k++] = v2[j++];
+    }
+    while (i < l)
+        res[k++] = v1[i++];
+    while (j < v2.size())
+        res[k++] = v2[j++];
+    return res;
+}
+std::vector<int> Merge(std::vector<int> v1, std::vector<int> v2, int evencount, int oddcount) {
+    std::vector<int> res(evencount + oddcount);
     int i = 0, j = 0, k = 0;
     while ((i < evencount) && (j < oddcount)) {
-        res[k++] = vec[i++];
-        res[k++] = vec[evencount + j];
-        j++;
+        if (v1[i] < v2[j])
+            res[k++] = v1[i++];
+        else
+            res[k++] = v2[j++];
     }
     while (i < evencount)
-        res[k++] = vec[i++];
-    for (size_t h = 0; h < res.size() - 1; h++) {
-        if (res[h] > res[h + 1]) {
-            int tmp = res[h];
-            res[h] = res[h + 1];
-            res[h + 1] = tmp;
-        }
-    }
+        res[k++] = v1[i++];
+    while (j < oddcount)
+        res[k++] = v2[j++];
     return res;
 }
 std::vector<int> RadixSort(std::vector<int> vec) {
@@ -150,6 +153,6 @@ std::vector<int> Vector(int n) {
     gen.seed(static_cast<unsigned int>(time(0)));
     std::vector<int> vec(n);
     for (int i = 0; i < n; i++)
-        vec[i] = gen() % 100;
+        vec[i] = gen() % 100000;
     return vec;
 }

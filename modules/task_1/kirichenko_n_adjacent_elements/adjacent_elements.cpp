@@ -33,12 +33,28 @@ int getParallelOperations(std::vector<int> globalVec, int SizeVector) {
     int size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    int* LocVec = new int[SizeVector];
+    int delta = SizeVector / size;
+    int remainder = SizeVector % size;
+    int* LocVec;
     if (rank == 0) {
-        for (int i = 0; i < SizeVector; i++)
-            LocVec[i] = globalVec[i];
+        LocVec = new int[delta+remainder];
+    } else {
+        LocVec = new int[delta+1];
     }
-    MPI_Bcast(LocVec, SizeVector, MPI_INT, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        for (int i = 1; i < size; i++) {
+            MPI_Send(globalVec.data() + i * delta + remainder - 1, delta + 1,
+                MPI_INT, i, 0, MPI_COMM_WORLD);
+        }
+    }
+    if (rank == 0) {
+        for (int i = 0; i < delta + remainder; i++) {
+            LocVec[i] = globalVec[i];
+        }
+    } else {
+        MPI_Status status;
+        MPI_Recv(LocVec, delta + 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+    }
     struct {
         int value;
         int index;
@@ -46,11 +62,20 @@ int getParallelOperations(std::vector<int> globalVec, int SizeVector) {
     LocMin, GlobMin;
     LocMin.value = abs(LocVec[1] - LocVec[0]);
     LocMin.index = 0;
-    for (int i = rank; i < SizeVector - 1; i += size)
-        if (abs(LocVec[i + 1] - LocVec[i]) < LocMin.value) {
-            LocMin.value = abs(LocVec[i + 1] - LocVec[i]);
-            LocMin.index = i;
-        }
+    if (rank == 0) {
+        for (int i = 0; i < delta+remainder - 1; i ++)
+            if (abs(LocVec[i + 1] - LocVec[i]) < LocMin.value) {
+                LocMin.value = abs(LocVec[i + 1] - LocVec[i]);
+                LocMin.index = i;
+            }
+    } else {
+        LocMin.index = rank * delta + remainder -1;
+        for (int i = 0; i < delta; i++)
+            if (abs(LocVec[i + 1] - LocVec[i]) < LocMin.value) {
+                LocMin.value = abs(LocVec[i + 1] - LocVec[i]);
+                LocMin.index = rank * delta + remainder - 1 + i;
+            }
+    }
     MPI_Reduce(&LocMin, &GlobMin, 1, MPI_2INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
     return GlobMin.index;
 }
